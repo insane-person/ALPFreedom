@@ -1,9 +1,10 @@
 import PyQt5
 
 from PyQt5 import uic
-from PyQt5.QtWidgets import QWidget, QDialog, QApplication, QHBoxLayout, QTableWidget, QCheckBox, QTableWidgetItem, QComboBox, QAbstractScrollArea, QHeaderView, QPushButton, QSizePolicy
+from PyQt5 import QtGui
+from PyQt5.QtWidgets import QWidget, QDialog, QApplication, QHBoxLayout, QCheckBox, QTableWidgetItem, QHeaderView
 from PyQt5.QtCore import Qt, pyqtSlot
-from PyQt5 import QtGui, QtCore
+
 
 import os
 import sys
@@ -11,6 +12,8 @@ import sys
 import jmespath
 import api
 import re
+
+from threading import Thread, Lock
 
 
 class NaturalStandardItem(QtGui.QStandardItem):
@@ -36,6 +39,9 @@ class MainWindow(QDialog):
     def __init__(self):
         super(QDialog, self).__init__()
         uic.loadUi('gui.ui', self)
+
+        # Download thread control lock
+        self.th_lock = Lock()
 
         # TODO update filter parameters
         self.clear_layout(self.horizontalLayout)
@@ -108,7 +114,6 @@ class MainWindow(QDialog):
         id = it.data()
 
         self.current_mountai_region = id
-
         summits = self.connection.get_region_summits(id)
 
         while self.tableWidget.rowCount() > 0:
@@ -141,7 +146,26 @@ class MainWindow(QDialog):
         self.routes_for_download.clear()
         self.progressBar.setValue(0)
 
+        # If we stop downloading
+        if self.th_lock.locked():
+            try:
+                self.th_lock.release()
+            except:
+                pass
+            self.pushButton.setText('Скачать')
+        # if we start downloading
+        else:
+            self.pushButton.setText('Отмена')
+            self.th = Thread(target=self.download)
+            self.th.start()
+
+    def download(self):
+        self.th_lock.acquire()
         for i in range(self.tableWidget.rowCount()):
+            #  stop downloading
+            if not self.th_lock.locked():
+                break
+
             checkbox_widget = self.tableWidget.cellWidget(i, 0)
             if checkbox_widget.findChild(type(QCheckBox())).isChecked():
                 id_item = self.tableWidget.item(i, 3)
@@ -151,12 +175,13 @@ class MainWindow(QDialog):
                                                     mountain_id=id)
 
                 self.routes_for_download.extend(routes)
-        self.download()
-
-    def download(self):
-        self.progressBar.setMaximum(len(self.routes_for_download)-1)
+        self.progressBar.setMaximum(len(self.routes_for_download))
 
         for i, route in enumerate(self.routes_for_download):
+            #  stop downloading
+            if not self.th_lock.locked():
+                break
+
             # Path to route directory
             route_location = jmespath.search('mountain_peaks[0].[mountain_region_name, mountain_area_name, name, height]', route)
             path_parts = route_location[:2 + 1]
@@ -178,7 +203,13 @@ class MainWindow(QDialog):
             for document in route_documents:
                 self.connection.get_description_file(file_id=document['id'], path=path, filename=document['original_name'])
                 # TODO add description .txt file
-            self.progressBar.setValue(i)
+            self.progressBar.setValue(i + 1)
+
+        try:
+            self.th_lock.release()
+        except:
+            pass
+        self.pushButton.setText('Скачать')
 
     def clear_layout(self, layout):
         if layout is not None:
@@ -188,8 +219,13 @@ class MainWindow(QDialog):
                 if widget is not None:
                     widget.deleteLater()
                 else:
-                    self.clearLayout(item.layout())
+                    self.clear_layout(item.layout())
 
+    def closeEvent(self, event):
+        try:
+            self.th_lock.release()
+        except:
+            pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
