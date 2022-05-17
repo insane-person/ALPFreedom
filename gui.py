@@ -183,14 +183,15 @@ class MainWindow(QDialog):
                 break
 
             # Path to route directory
-            route_location = jmespath.search('mountain_peaks[0].[mountain_region_name, mountain_area_name, name, height]', route)
+            route_location = jmespath.search('"0".mountain_peaks[0].[mountain_region_name, mountain_area_name, name, height]', route)
             path_parts = route_location[:2 + 1]
             path_parts[-1] += " " + str(route_location[3])
 
             # Route name
-            complexity = jmespath.search('mountain_route_complexity.name', route)
-            route_type = jmespath.search('mountain_route_type.name', route)
-            route_name = complexity + ' ' + route['name'] + ' ' + route_type
+            complexity = jmespath.search('"0".mountain_route_complexity.name', route)
+            route_type = jmespath.search('"0".mountain_route_type.name', route)
+            route_name = jmespath.search('"0".name', route)
+            route_name = f"{complexity} {route_name} {route_type}"
             route_name = re.sub('[\<\>\:"\/\\\|\?\*]', ' ', route_name)
 
             path = os.path.join('.', 'downloads', *path_parts, route_name)
@@ -199,7 +200,7 @@ class MainWindow(QDialog):
             import pathlib
             pathlib.Path(path).mkdir(parents=True, exist_ok=True)
 
-            route_documents = jmespath.search('documents_files[*]', route)
+            route_documents = jmespath.search('"0".documents_files[*]', route)
             for document in route_documents:
                 self.connection.get_description_file(file_id=document['id'], path=path, filename=document['original_name'])
                 # TODO add description .txt file
